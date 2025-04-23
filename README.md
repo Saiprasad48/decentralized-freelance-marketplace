@@ -20,7 +20,7 @@ A decentralized freelance platform powered by Ethereum smart contracts, featurin
 ## 📦 Setup
 
 ```bash
-git clone https://github.com/your-username/decentralized-freelance-marketplace.git
+git clone https://github.com/Saiprasad48/decentralized-freelance-marketplace.git
 cd decentralized-freelance-marketplace
 npm install
 npx hardhat test
