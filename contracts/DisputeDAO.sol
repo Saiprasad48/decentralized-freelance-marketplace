@@ -2,48 +2,73 @@
 pragma solidity ^0.8.20;
 
 contract DisputeDAO {
-    struct Proposal {
+    uint256 public disputeCount;
+    mapping(uint256 => Dispute) public disputes;
+
+    struct Dispute {
         uint256 jobId;
-        string description;
-        uint256 yesVotes;
-        uint256 noVotes;
+        address client;
+        address freelancer;
+        string reason;
+        uint256 votesClient;
+        uint256 votesFreelancer;
         mapping(address => bool) voted;
-        bool executed;
-    }
-    mapping(uint256 => Proposal) public proposals;
-    uint256 public proposalCount;
-
-    event ProposalCreated(uint256 indexed proposalId, uint256 jobId, string description);
-    event Voted(uint256 indexed proposalId, address indexed voter, bool support);
-
-    function createProposal(uint256 jobId, string memory description) external returns (uint256) {
-        Proposal storage p = proposals[proposalCount];
-        p.jobId = jobId;
-        p.description = description;
-        emit ProposalCreated(proposalCount, jobId, description);
-        return proposalCount++;
+        bool resolved;
+        bool exists;
     }
 
-    function vote(uint256 proposalId, bool support) external {
-        Proposal storage p = proposals[proposalId];
-        require(!p.voted[msg.sender], "Already voted");
-        require(!p.executed, "Already executed");
-        p.voted[msg.sender] = true;
-        if (support) {
-            p.yesVotes++;
+    event DisputeCreated(uint256 indexed disputeId, address indexed client, address indexed freelancer, string reason);
+    event Voted(uint256 indexed disputeId, address indexed voter, uint256 vote);
+    event DisputeResolved(uint256 indexed disputeId, bool resolvedInFavor);
+
+    function createDispute(address freelancer, string memory reason) external payable returns (uint256) {
+        require(freelancer != address(0), "Invalid freelancer address");
+        require(msg.value >= 0.05 ether, "Minimum 0.05 ETH required");
+        disputeCount++;
+        Dispute storage d = disputes[disputeCount];
+        d.jobId = disputeCount; // Use disputeId as jobId for simplicity
+        d.client = msg.sender;
+        d.freelancer = freelancer;
+        d.reason = reason;
+        d.votesClient = 0;
+        d.votesFreelancer = 0;
+        d.resolved = false;
+        d.exists = true;
+        emit DisputeCreated(disputeCount, msg.sender, freelancer, reason);
+        return disputeCount;
+    }
+
+    function registerAsJuror() external {
+        // Placeholder: Add juror registration logic (e.g., stake, eligibility)
+    }
+
+    function voteOnDispute(uint256 disputeId, uint256 vote) external {
+        Dispute storage d = disputes[disputeId];
+        require(d.exists, "Dispute does not exist");
+        require(!d.voted[msg.sender], "Already voted");
+        require(!d.resolved, "Dispute already resolved");
+        require(vote == 1 || vote == 2, "Invalid vote: 1 for Client, 2 for Freelancer");
+        d.voted[msg.sender] = true;
+        if (vote == 1) {
+            d.votesClient++;
         } else {
-            p.noVotes++;
+            d.votesFreelancer++;
         }
-        emit Voted(proposalId, msg.sender, support);
+        emit Voted(disputeId, msg.sender, vote);
     }
 
-    function execute(uint256 proposalId) external {
-        Proposal storage p = proposals[proposalId];
-        require(!p.executed, "Already executed");
-        require(p.yesVotes + p.noVotes > 0, "No votes");
-        // For demo: if yesVotes > noVotes, mark as executed.
-        if (p.yesVotes > p.noVotes) {
-            p.executed = true;
+    function resolveDispute(uint256 disputeId) external {
+        Dispute storage d = disputes[disputeId];
+        require(d.exists, "Dispute does not exist");
+        require(!d.resolved, "Dispute already resolved");
+        require(d.votesClient + d.votesFreelancer > 0, "No votes");
+        d.resolved = true;
+        bool resolvedInFavor = d.votesClient >= d.votesFreelancer;
+        emit DisputeResolved(disputeId, resolvedInFavor);
+        // Refund ETH to client if resolved in favor
+        if (resolvedInFavor) {
+            (bool sent, ) = d.client.call{value: address(this).balance}("");
+            require(sent, "Refund failed");
         }
     }
 }

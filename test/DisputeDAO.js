@@ -2,43 +2,60 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("DAO Voting (Dispute Resolution)", function () {
-  let DAO, dao, owner, voter1, voter2, voter3;
+  let dao, deployer, user1, user2;
 
   beforeEach(async function () {
-    [owner, voter1, voter2, voter3] = await ethers.getSigners();
-    DisputeDAO = await ethers.getContractFactory("DisputeDAO");
+    [deployer, user1, user2] = await ethers.getSigners();
+    const DisputeDAO = await ethers.getContractFactory("DisputeDAO");
     dao = await DisputeDAO.deploy();
     await dao.waitForDeployment();
   });
 
   it("should allow users to submit a dispute", async function () {
-    await expect(dao.connect(owner).submitDispute("Dispute about job #1"))
-      .to.emit(dao, "DisputeSubmitted")
-      .withArgs(1, owner.address, "Dispute about job #1");
+    const reason = "Non-delivery of work";
+    const tx = await dao.connect(user1).createDispute(user2.address, reason, { value: ethers.parseEther("0.05") });
+    const receipt = await tx.wait();
+    const disputeId = receipt.logs
+      .map(log => dao.interface.parseLog(log))
+      .find(e => e.name === "DisputeCreated").args.disputeId;
+    const dispute = await dao.disputes(disputeId);
+    expect(dispute.exists).to.be.true;
+    expect(dispute.reason).to.equal(reason);
+    expect(dispute.client).to.equal(user1.address);
+    expect(dispute.freelancer).to.equal(user2.address);
   });
 
   it("should allow voting and resolve dispute", async function () {
-    await dao.connect(owner).submitDispute("Dispute about job #1");
-    await dao.connect(voter1).vote(1, true);  // vote in favor
-    await dao.connect(voter2).vote(1, false); // vote against
+    const reason = "Non-delivery of work";
+    const tx = await dao.connect(user1).createDispute(user2.address, reason, { value: ethers.parseEther("0.05") });
+    const receipt = await tx.wait();
+    const disputeId = receipt.logs
+      .map(log => dao.interface.parseLog(log))
+      .find(e => e.name === "DisputeCreated").args.disputeId;
 
-    // Assume resolveDispute tallies and emits event
-    await expect(dao.connect(owner).resolveDispute(1))
-      .to.emit(dao, "DisputeResolved")
-      .withArgs(1, true); // true if majority in favor
+    await dao.connect(user2).voteOnDispute(disputeId, 1); // Vote for client
+    const dispute = await dao.disputes(disputeId);
+    expect(dispute.votesClient).to.equal(1);
+
+    await dao.connect(user1).resolveDispute(disputeId);
+    const resolvedDispute = await dao.disputes(disputeId);
+    expect(resolvedDispute.resolved).to.be.true;
+    expect(resolvedDispute.votesClient).to.be.gte(resolvedDispute.votesFreelancer);
   });
 
   it("should not allow double voting", async function () {
-    await dao.connect(owner).submitDispute("Dispute about job #1");
-    await dao.connect(voter1).vote(1, true);
-    await expect(
-      dao.connect(voter1).vote(1, false)
-    ).to.be.revertedWith("Already voted");
+    const reason = "Non-delivery of work";
+    const tx = await dao.connect(user1).createDispute(user2.address, reason, { value: ethers.parseEther("0.05") });
+    const receipt = await tx.wait();
+    const disputeId = receipt.logs
+      .map(log => dao.interface.parseLog(log))
+      .find(e => e.name === "DisputeCreated").args.disputeId;
+
+    await dao.connect(user2).voteOnDispute(disputeId, 1);
+    await expect(dao.connect(user2).voteOnDispute(disputeId, 1)).to.be.revertedWith("Already voted");
   });
 
   it("should not allow voting on non-existent dispute", async function () {
-    await expect(
-      dao.connect(voter1).vote(999, true)
-    ).to.be.revertedWith("Dispute does not exist");
+    await expect(dao.connect(user1).voteOnDispute(999, 1)).to.be.revertedWith("Dispute does not exist");
   });
 });

@@ -2,87 +2,119 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("Escrow Contract", function () {
-  let Escrow, escrow, buyer, seller, arbiter, other;
+  let escrow, deployer, client, freelancer;
+  const mockDeliveryUrl = "QmMockHash"; // Mock IPFS hash for testing
 
   beforeEach(async function () {
-    [buyer, seller, arbiter, other] = await ethers.getSigners();
-    Escrow = await ethers.getContractFactory("Escrow");
-    escrow = await Escrow.connect(buyer).deploy(seller.address, arbiter.address);
+    [deployer, client, freelancer] = await ethers.getSigners();
+    const Escrow = await ethers.getContractFactory("Escrow");
+    escrow = await Escrow.deploy();
     await escrow.waitForDeployment();
   });
 
-  it("should initialize with correct parties and state", async function () {
-    expect(await escrow.buyer()).to.equal(buyer.address);
-    expect(await escrow.seller()).to.equal(seller.address);
-    expect(await escrow.arbiter()).to.equal(arbiter.address);
-    expect(await escrow.state()).to.equal(0); // AWAITING_PAYMENT
+  it("should initialize with zero jobs", async function () {
+    expect(await escrow.jobCount()).to.equal(0);
   });
 
-  it("should allow buyer to deposit and move to AWAITING_DELIVERY", async function () {
-    await escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") });
-    expect(await ethers.provider.getBalance(escrow.address)).to.equal(ethers.utils.parseEther("1"));
-    expect(await escrow.state()).to.equal(1); // AWAITING_DELIVERY
+  it("should allow client to create a job", async function () {
+    const amount = ethers.parseEther("1.5");
+    const tx = await escrow.connect(client).createJob(freelancer.address, amount);
+    const receipt = await tx.wait();
+    const jobId = receipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "JobCreated").args.jobId;
+    const job = await escrow.jobs(jobId);
+    expect(job.client).to.equal(client.address);
+    expect(job.freelancer).to.equal(freelancer.address);
+    expect(job.amount).to.equal(amount);
+    expect(job.status).to.equal(0); // Created
   });
 
-  it("should not allow non-buyer to deposit", async function () {
-    await expect(
-      escrow.connect(seller).deposit({ value: ethers.utils.parseEther("1") })
-    ).to.be.revertedWith("Only buyer can deposit");
+  it("should allow client to fund a job", async function () {
+    const amount = ethers.parseEther("1.5");
+    const tx = await escrow.connect(client).createJob(freelancer.address, amount);
+    const receipt = await tx.wait();
+    const jobId = receipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "JobCreated").args.jobId;
+
+    await escrow.connect(client).fundJob(jobId, { value: amount });
+    const job = await escrow.jobs(jobId);
+    expect(job.status).to.equal(1); // Funded
   });
 
-  it("should not allow double deposit", async function () {
-    await escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") });
-    await expect(
-      escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") })
-    ).to.be.revertedWith("Already deposited");
+  it("should allow freelancer to submit delivery", async function () {
+    const amount = ethers.parseEther("1.5");
+    const tx = await escrow.connect(client).createJob(freelancer.address, amount);
+    const receipt = await tx.wait();
+    const jobId = receipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "JobCreated").args.jobId;
+
+    await escrow.connect(client).fundJob(jobId, { value: amount });
+    const submitTx = await escrow.connect(freelancer).submitDelivery(jobId, mockDeliveryUrl);
+    const submitReceipt = await submitTx.wait();
+    const event = submitReceipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "DeliverySubmitted");
+
+    expect(event.args.jobId).to.equal(jobId);
+    expect(event.args.deliveryUrl).to.equal(mockDeliveryUrl);
+
+    const job = await escrow.jobs(jobId);
+    expect(job.status).to.equal(2); // Delivered
+    expect(job.deliveryUrl).to.equal(mockDeliveryUrl);
   });
 
-  it("should allow buyer to confirm delivery and pay seller", async function () {
-    await escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") });
-    const sellerBalanceBefore = await ethers.provider.getBalance(seller.address);
-    await escrow.connect(buyer).confirmDelivery();
-    expect(await escrow.state()).to.equal(2); // COMPLETE
-    const sellerBalanceAfter = await ethers.provider.getBalance(seller.address);
-    expect(sellerBalanceAfter.sub(sellerBalanceBefore)).to.equal(ethers.utils.parseEther("1"));
+  it("should allow client to confirm delivery and pay freelancer", async function () {
+    const amount = ethers.parseEther("1.5");
+    const tx = await escrow.connect(client).createJob(freelancer.address, amount);
+    const receipt = await tx.wait();
+    const jobId = receipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "JobCreated").args.jobId;
+
+    await escrow.connect(client).fundJob(jobId, { value: amount });
+    await escrow.connect(freelancer).submitDelivery(jobId, mockDeliveryUrl);
+    const initialBalance = await ethers.provider.getBalance(freelancer.address);
+    await escrow.connect(client).confirmDelivery(jobId);
+    const job = await escrow.jobs(jobId);
+    expect(job.status).to.equal(3); // Confirmed
+    const finalBalance = await ethers.provider.getBalance(freelancer.address);
+    expect(finalBalance).to.be.gt(initialBalance);
   });
 
-  it("should not allow confirmDelivery by non-buyer", async function () {
-    await escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") });
-    await expect(
-      escrow.connect(seller).confirmDelivery()
-    ).to.be.revertedWith("Only buyer can confirm");
+  it("should allow client or freelancer to dispute a job", async function () {
+    const amount = ethers.parseEther("1.5");
+    const tx = await escrow.connect(client).createJob(freelancer.address, amount);
+    const receipt = await tx.wait();
+    const jobId = receipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "JobCreated").args.jobId;
+
+    await escrow.connect(client).fundJob(jobId, { value: amount });
+    await escrow.connect(freelancer).submitDelivery(jobId, mockDeliveryUrl);
+    await escrow.connect(client).dispute(jobId);
+    const job = await escrow.jobs(jobId);
+    expect(job.status).to.equal(4); // Disputed
   });
 
-  it("should allow arbiter to refund buyer", async function () {
-    await escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") });
-    const buyerBalanceBefore = await ethers.provider.getBalance(buyer.address);
-    await escrow.connect(arbiter).refund();
-    expect(await escrow.state()).to.equal(3); // REFUNDED
-    // Can't check exact balance due to gas, but state change is enough
-  });
+  it("should allow refund in disputed state", async function () {
+    const amount = ethers.parseEther("1.5");
+    const tx = await escrow.connect(client).createJob(freelancer.address, amount);
+    const receipt = await tx.wait();
+    const jobId = receipt.logs
+      .map(log => escrow.interface.parseLog(log))
+      .find(e => e.name === "JobCreated").args.jobId;
 
-  it("should not allow refund by non-arbiter", async function () {
-    await escrow.connect(buyer).deposit({ value: ethers.utils.parseEther("1") });
-    await expect(
-      escrow.connect(buyer).refund()
-    ).to.be.revertedWith("Only arbiter can refund");
-  });
-
-  it("should not allow refund before deposit", async function () {
-    await expect(
-      escrow.connect(arbiter).refund()
-    ).to.be.revertedWith("Refund not allowed");
-  });
-
-  it("should not allow confirmDelivery before deposit", async function () {
-    await expect(
-      escrow.connect(buyer).confirmDelivery()
-    ).to.be.revertedWith("Cannot confirm");
-  });
-
-  it("should not allow deposit of zero", async function () {
-    await expect(
-      escrow.connect(buyer).deposit({ value: 0 })
-    ).to.be.revertedWith("Deposit must be > 0");
+    await escrow.connect(client).fundJob(jobId, { value: amount });
+    await escrow.connect(freelancer).submitDelivery(jobId, mockDeliveryUrl);
+    await escrow.connect(client).dispute(jobId);
+    const initialBalance = await ethers.provider.getBalance(client.address);
+    await escrow.connect(client).refund(jobId); // Note: Update with DAO integration
+    const job = await escrow.jobs(jobId);
+    expect(job.status).to.equal(3); // Confirmed (or update to Refunded)
+    const finalBalance = await ethers.provider.getBalance(client.address);
+    expect(finalBalance).to.be.gt(initialBalance);
   });
 });

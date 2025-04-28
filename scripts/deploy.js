@@ -1,21 +1,22 @@
+const { ethers } = require("hardhat");
+
 async function main() {
   const [deployer] = await ethers.getSigners();
+  console.log("Deploying contracts with account:", deployer.address);
 
-  // Deploy Escrow contract
+  // Deploy Escrow contract (0 arguments)
   const Escrow = await ethers.getContractFactory("Escrow");
-  const escrow = await Escrow.deploy(
-    "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-  );
+  const escrow = await Escrow.connect(deployer).deploy();
   await escrow.waitForDeployment();
   console.log("Escrow deployed to:", await escrow.getAddress());
 
-  // Deploy ReputationToken contract (FIX: pass deployer.address)
+  // Deploy ReputationToken contract (3 arguments: name, symbol, initialOwner)
   const ReputationToken = await ethers.getContractFactory("ReputationToken");
-  const repToken = await ReputationToken.deploy(deployer.address);
+  const repToken = await ReputationToken.deploy("Reputation Token", "RPT", deployer.address);
   await repToken.waitForDeployment();
   console.log("ReputationToken deployed to:", await repToken.getAddress());
 
-  // Deploy DAO contract
+  // Deploy DisputeDAO contract (0 arguments)
   const DisputeDAO = await ethers.getContractFactory("DisputeDAO");
   const dao = await DisputeDAO.deploy();
   await dao.waitForDeployment();
@@ -24,5 +25,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
-  process.exit(1);
+  process.exitCode = 1;
 });

@@ -4,121 +4,83 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract Escrow is ReentrancyGuard {
-    enum Status { OPEN, PENDING, DELIVERY, CONFIRMED, DISPUTED, REFUNDED, WITHDRAWN }
-    enum EscrowType { MILESTONE, TIME }
+    uint256 public jobCount;
+    mapping(uint256 => Job) public jobs;
 
     struct Job {
-        uint256 jobId;
         address client;
         address freelancer;
         uint256 amount;
-        uint256 deadline; // for time-based
-        uint256[] milestones; // for milestone-based
-        uint256 currentMilestone;
-        EscrowType escrowType;
-        Status status;
-        bool delivered;
-        bool confirmed;
+        uint256 status; // 0: Created, 1: Funded, 2: Delivered, 3: Confirmed, 4: Disputed
+        string deliveryUrl; // IPFS URL for delivery
     }
 
-    uint256 public feePercent = 2;
-    uint256 public totalJobs;
-    address public arbiter;
-
-    mapping(uint256 => Job) public jobs;
-
-    event JobCreated(uint256 indexed jobId, address indexed client, uint256 amount, EscrowType escrowType);
+    event JobCreated(uint256 indexed jobId, address indexed client, address indexed freelancer, uint256 amount);
     event JobFunded(uint256 indexed jobId, uint256 amount);
-    event DeliverySubmitted(uint256 indexed jobId);
-    event JobConfirmed(uint256 indexed jobId);
-    event Disputed(uint256 indexed jobId);
-    event Refunded(uint256 indexed jobId);
-    event Withdrawn(address indexed to, uint256 amount);
+    event DeliverySubmitted(uint256 indexed jobId, string deliveryUrl);
+    event DeliveryConfirmed(uint256 indexed jobId);
+    event JobDisputed(uint256 indexed jobId);
 
-    modifier onlyClient(uint256 jobId) {
-        require(msg.sender == jobs[jobId].client, "Not client");
-        _;
-    }
+    constructor() {}
 
-    modifier onlyFreelancer(uint256 jobId) {
-        require(msg.sender == jobs[jobId].freelancer, "Not freelancer");
-        _;
-    }
-
-    constructor(address _arbiter) {
-        arbiter = _arbiter;
-    }
-
-    function createJob(
-        address _freelancer,
-        uint256 _amount,
-        uint256 _deadline,
-        uint256[] memory _milestones,
-        EscrowType _escrowType
-    ) external returns (uint256) {
-        require(_freelancer != address(0), "Invalid freelancer");
-        require(_amount > 0, "Amount must be > 0");
-        uint256 jobId = totalJobs++;
-        jobs[jobId] = Job({
-            jobId: jobId,
+    function createJob(address freelancer, uint256 amount) external returns (uint256) {
+        require(freelancer != address(0), "Invalid freelancer address");
+        require(amount > 0, "Amount must be > 0");
+        jobCount++;
+        jobs[jobCount] = Job({
             client: msg.sender,
-            freelancer: _freelancer,
-            amount: _amount,
-            deadline: _deadline,
-            milestones: _milestones,
-            currentMilestone: 0,
-            escrowType: _escrowType,
-            status: Status.OPEN,
-            delivered: false,
-            confirmed: false
+            freelancer: freelancer,
+            amount: amount,
+            status: 0, // Created
+            deliveryUrl: ""
         });
-        emit JobCreated(jobId, msg.sender, _amount, _escrowType);
-        return jobId;
+        emit JobCreated(jobCount, msg.sender, freelancer, amount);
+        return jobCount;
     }
 
-    function fundJob(uint256 jobId) external payable onlyClient(jobId) nonReentrant {
+    function fundJob(uint256 jobId) external payable nonReentrant {
         Job storage job = jobs[jobId];
-        require(job.status == Status.OPEN, "Job not open");
+        require(job.client == msg.sender, "Only client can fund");
+        require(job.status == 0, "Job not in Created state");
         require(msg.value == job.amount, "Incorrect amount");
-        job.status = Status.PENDING;
+        job.status = 1; // Funded
         emit JobFunded(jobId, msg.value);
     }
 
-    function submitDelivery(uint256 jobId) external onlyFreelancer(jobId) {
+    function submitDelivery(uint256 jobId, string memory deliveryUrl) external nonReentrant {
         Job storage job = jobs[jobId];
-        require(job.status == Status.PENDING, "Job not pending");
-        job.delivered = true;
-        job.status = Status.DELIVERY;
-        emit DeliverySubmitted(jobId);
+        require(job.freelancer == msg.sender, "Only freelancer can submit");
+        require(job.status == 1, "Job not in Funded state");
+        job.deliveryUrl = deliveryUrl; // Store the IPFS URL
+        job.status = 2; // Delivered
+        emit DeliverySubmitted(jobId, deliveryUrl);
     }
 
-    function confirmDelivery(uint256 jobId) external onlyClient(jobId) nonReentrant {
+    function confirmDelivery(uint256 jobId) external nonReentrant {
         Job storage job = jobs[jobId];
-        require(job.status == Status.DELIVERY, "Not delivered");
-        uint256 fee = (job.amount * feePercent) / 100;
-        uint256 payout = job.amount - fee;
-        (bool sent, ) = job.freelancer.call{value: payout}("");
+        require(job.client == msg.sender, "Only client can confirm");
+        require(job.status == 2, "Job not in Delivered state");
+        (bool sent, ) = job.freelancer.call{value: job.amount}("");
         require(sent, "Payment failed");
-        job.confirmed = true;
-        job.status = Status.CONFIRMED;
-        emit JobConfirmed(jobId);
+        job.status = 3; // Confirmed
+        emit DeliveryConfirmed(jobId);
     }
 
-    function dispute(uint256 jobId) external {
+    function dispute(uint256 jobId) external nonReentrant {
         Job storage job = jobs[jobId];
-        require(msg.sender == job.client || msg.sender == job.freelancer, "Not participant");
-        require(job.status == Status.DELIVERY, "Not delivered");
-        job.status = Status.DISPUTED;
-        emit Disputed(jobId);
+        require(job.client == msg.sender || job.freelancer == msg.sender, "Only client or freelancer can dispute");
+        require(job.status == 2, "Job not in Delivered state");
+        job.status = 4; // Disputed
+        emit JobDisputed(jobId);
     }
 
-    function refund(uint256 jobId) external {
+    // Optional: Refund function for arbiter or DAO resolution
+    function refund(uint256 jobId) external nonReentrant {
         Job storage job = jobs[jobId];
-        require(msg.sender == arbiter, "Only arbiter");
-        require(job.status == Status.DISPUTED, "Not disputed");
+        require(job.status == 4, "Job not in Disputed state");
+        // Add arbiter or DAO check if needed
         (bool sent, ) = job.client.call{value: job.amount}("");
         require(sent, "Refund failed");
-        job.status = Status.REFUNDED;
-        emit Refunded(jobId);
+        job.status = 3; // Confirmed (or add new Refunded status)
     }
 }

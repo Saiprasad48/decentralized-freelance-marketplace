@@ -21,5 +21,13 @@
   },
   "directories": {
     "test": "test"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Saiprasad48/decentralized-freelance-marketplace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Saiprasad48/decentralized-freelance-marketplace/issues"
+  },
+  "homepage": "https://github.com/Saiprasad48/decentralized-freelance-marketplace#readme"
 }
