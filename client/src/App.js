@@ -22,12 +22,22 @@ const HARDHAT_ACCOUNTS = [
   { 
     address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", 
     label: "Client (Account 0)", 
-    privateKey: "" // Add private key here for local testing (e.g., from `npx hardhat node`)
+    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" 
+  },
+  { 
+    address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", 
+    label: "Freelancer (Account 1)", 
+    privateKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
   },
   { 
     address: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC", 
     label: "Freelancer (Account 2)", 
-    privateKey: "" // Add private key here for local testing (e.g., from `npx hardhat node`)
+    privateKey: "0x50x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
+  },
+  { 
+    address: "0x90F79bf6EB2c4f870365E785982E1f101E93b906", 
+    label: "Freelancer (Account 3)", 
+    privateKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
   },
 ];
 
@@ -124,55 +134,47 @@ function App() {
   };
 
   // Fetch reputation balance
-  useEffect(() => {
-    const fetchRep = async () => {
-      if (repToken && account) {
-        try {
-          const bal = await repToken.balanceOf(account);
-          setRepBalance(ethers.formatUnits(bal, 18));
-        } catch (error) {
-          console.error("Fetch balance failed:", error);
-          setTxStatus("Error: Failed to fetch reputation balance");
-          addToTxHistory("Error: Failed to fetch reputation balance");
-        }
+  const fetchRep = async () => {
+    if (repToken && account) {
+      try {
+        const bal = await repToken.balanceOf(account);
+        setRepBalance(ethers.formatUnits(bal, 18));
+      } catch (error) {
+        console.error("Fetch balance failed:", error);
+        setTxStatus("Error: Failed to fetch reputation balance");
+        addToTxHistory("Error: Failed to fetch reputation balance");
       }
-    };
+    }
+  };
+
+  useEffect(() => {
     fetchRep();
   }, [repToken, account]);
 
   // Fetch active jobs
-  useEffect(() => {
-    const fetchJobs = async () => {
-      if (escrow && account) {
-        try {
-          const jobCount = await escrow.jobCount();
-          const jobList = [];
-          for (let i = 1; i <= jobCount; i++) {
-            const job = await escrow.jobs(i);
-            jobList.push({
-              id: i,
-              client: job.client,
-              freelancer: job.freelancer,
-              amount: ethers.formatEther(job.amount),
-              status:
-                job.status === 0
-                  ? "Created"
-                  : job.status === 1
-                  ? "Funded"
-                  : job.status === 2
-                  ? "Delivered"
-                  : job.status === 3
-                  ? "Confirmed"
-                  : "Disputed",
-              deliveryUrl: job.deliveryUrl,
-            });
-          }
-          setJobs(jobList);
-        } catch (error) {
-          console.error("Fetch jobs failed:", error);
+  const fetchJobs = async () => {
+    if (escrow && account) {
+      try {
+        const jobCount = await escrow.jobCount();
+        const jobList = [];
+        for (let i = 1; i <= jobCount; i++) {
+          const job = await escrow.jobs(i);
+          jobList.push({
+            id: i,
+            client: job.client,
+            freelancer: job.freelancer,
+            amount: ethers.formatEther(job.amount),
+            deliveryUrl: job.deliveryUrl,
+          });
         }
+        setJobs(jobList);
+      } catch (error) {
+        console.error("Fetch jobs failed:", error);
       }
-    };
+    }
+  };
+
+  useEffect(() => {
     fetchJobs();
   }, [escrow, account]);
 
@@ -243,6 +245,7 @@ function App() {
         setJobId(event.args.jobId.toString());
         setTxStatus(`Success: Job created with ID: ${event.args.jobId}`);
         addToTxHistory(`Success: Job created with ID: ${event.args.jobId}`);
+        await fetchJobs(); // Refresh jobs
       } else {
         setTxStatus("Error: Job creation failed: No JobCreated event");
         addToTxHistory("Error: Job creation failed: No JobCreated event");
@@ -282,6 +285,7 @@ function App() {
       if (event) {
         setTxStatus(`Success: Job ID ${jobId} funded`);
         addToTxHistory(`Success: Job ID ${jobId} funded`);
+        await fetchJobs(); // Refresh jobs
       } else {
         setTxStatus("Error: Job funding failed: No JobFunded event");
         addToTxHistory("Error: Job funding failed: No JobFunded event");
@@ -319,6 +323,7 @@ function App() {
       if (event) {
         setTxStatus(`Success: Delivery submitted for Job ID: ${jobId}`);
         addToTxHistory(`Success: Delivery submitted for Job ID: ${jobId}`);
+        await fetchJobs(); // Refresh jobs
       } else {
         setTxStatus("Error: Delivery submission failed: No DeliverySubmitted event");
         addToTxHistory("Error: Delivery submission failed: No DeliverySubmitted event");
@@ -335,7 +340,7 @@ function App() {
     setFile(e.target.files[0]);
   };
 
-  // Escrow  Confirm delivery
+  // Escrow: Confirm delivery
   const confirmDelivery = async () => {
     if (!escrow || !jobId) {
       setTxStatus("Error: Please provide job ID");
@@ -349,6 +354,8 @@ function App() {
       await tx.wait();
       setTxStatus("Success: Delivery confirmed and payment released!");
       addToTxHistory("Success: Delivery confirmed and payment released!");
+      await fetchJobs(); // Refresh jobs
+      await fetchRep();  // Refresh reputation balance
     } catch (error) {
       console.error("Confirm delivery failed:", error);
       setTxStatus(`Error: ${error.reason || error.message}`);
@@ -370,10 +377,12 @@ function App() {
       await tx.wait();
       setTxStatus("Success: Dispute initiated!");
       addToTxHistory("Success: Dispute initiated!");
+      await fetchJobs(); // Refresh jobs
+      await fetchRep();  // Refresh reputation balance
     } catch (error) {
       console.error("Dispute job failed:", error);
       setTxStatus(`Error: ${error.reason || error.message}`);
-      addToTxHistory(`Error: Perspective: ${error.reason || error.message}`);
+      addToTxHistory(`Error: ${error.reason || error.message}`);
     }
   };
 
@@ -502,7 +511,6 @@ function App() {
                   <th style={{ padding: 8, border: "1px solid #ddd" }}>Client</th>
                   <th style={{ padding: 8, border: "1px solid #ddd" }}>Freelancer</th>
                   <th style={{ padding: 8, border: "1px solid #ddd" }}>Amount (ETH)</th>
-                  <th style={{ padding: 8, border: "1px solid #ddd" }}>Status</th>
                   <th style={{ padding: 8, border: "1px solid #ddd" }}>Delivery URL</th>
                 </tr>
               </thead>
@@ -513,7 +521,6 @@ function App() {
                     <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.client.slice(0, 6)}...{job.client.slice(-4)}</td>
                     <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.freelancer.slice(0, 6)}...{job.freelancer.slice(-4)}</td>
                     <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.amount}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.status}</td>
                     <td style={{ padding: 8, border: "1px solid #ddd" }}>
                       {job.deliveryUrl ? (
                         <a href={`https://gateway.pinata.cloud/ipfs/${job.deliveryUrl}`} target="_blank" rel="noopener noreferrer">
