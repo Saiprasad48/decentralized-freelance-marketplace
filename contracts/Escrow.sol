@@ -74,7 +74,7 @@ contract Escrow is ReentrancyGuard {
         emit JobDisputed(jobId);
     }
 
-    // Optional: Refund function for arbiter or DAO resolution
+    //Refund function for arbiter or DAO resolution (Optional)
     function refund(uint256 jobId) external nonReentrant {
         Job storage job = jobs[jobId];
         require(job.status == 4, "Job not in Disputed state");
