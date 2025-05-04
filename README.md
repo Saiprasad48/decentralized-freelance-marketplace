@@ -13,7 +13,6 @@ A decentralized application (DApp) built on Ethereum that allows clients to hire
 - [Directory Structure](#directory-structure)
 - [Security Notes](#security-notes)
 - [Future Improvements](#future-improvements)
-- [License](#license)
 
 ## Overview
 
