@@ -1,3 +1,5 @@
+import './App.css';
+
 import React, { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import axios from "axios";
@@ -22,7 +24,9 @@ const HARDHAT_ACCOUNTS = [
   { 
     address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", 
     label: "Client (Account 0)", 
+
     privateKey: "" // Private key of the address should be filled here 
+
   },
   { 
     address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", 
@@ -37,8 +41,15 @@ const HARDHAT_ACCOUNTS = [
   { 
     address: "0x90F79bf6EB2c4f870365E785982E1f101E93b906", 
     label: "Freelancer (Account 3)", 
+
     privateKey: "" // Private key of the address should be filled here
+
   },
+  {
+    address: "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+    label: "Arbitrator (Account 2)",
+    privateKey: "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65a3e6e57dbd8b5b8bd8c5b2f1"
+  }
 ];
 
 // Function to upload file to Pinata
@@ -73,7 +84,8 @@ function App() {
   const [txHistory, setTxHistory] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [disputes, setDisputes] = useState([]);
-  const [selectedAccount, setSelectedAccount] = useState(HARDHAT_ACCOUNTS[0].address); // Default to Client
+  const [selectedAccount, setSelectedAccount] = useState(HARDHAT_ACCOUNTS[0].address);
+const [role, setRole] = useState("Client"); // Default to Client
 
   // Escrow states
   const [freelancer, setFreelancer] = useState("");
@@ -84,6 +96,42 @@ function App() {
   const [repBalance, setRepBalance] = useState(0);
 
   // DAO states
+useEffect(() => {
+  const match = HARDHAT_ACCOUNTS.find(acc => acc.address === selectedAccount);
+  if (match) {
+    const label = match.label.toLowerCase();
+    if (label.includes("freelancer")) setRole("Freelancer");
+    else if (label.includes("arbitrator")) setRole("Arbitrator");
+    else setRole("Client");
+  }
+}, [selectedAccount]);
+
+const [disputedJobs, setDisputedJobs] = useState([]);
+
+useEffect(() => {
+  if (jobs.length > 0) {
+    const filtered = jobs.filter(job => job.status === "Disputed");
+    setDisputedJobs(filtered);
+  }
+}, [jobs]);
+
+const resolveDispute = async (jobId, releaseToFreelancer) => {
+  if (!escrow) return;
+  try {
+    setTxStatus("Pending: Resolving dispute...");
+    addToTxHistory("Pending: Resolving dispute...");
+    const tx = await escrow.resolveDispute(jobId, releaseToFreelancer);
+    await tx.wait();
+    const recipient = releaseToFreelancer ? "Freelancer" : "Client";
+    setTxStatus(`Success: Funds released to ${recipient}`);
+    addToTxHistory(`Success: Funds released to ${recipient}`);
+  } catch (error) {
+    console.error("Resolve dispute failed:", error);
+    setTxStatus(`Error: ${error.reason || error.message}`);
+    addToTxHistory(`Error: ${error.reason || error.message}`);
+  }
+};
+
   const [disputeId, setDisputeId] = useState("");
   const [voteOption, setVoteOption] = useState("");
 
@@ -499,7 +547,8 @@ function App() {
       {txStatus && <p style={{ color: txStatus.startsWith("Error") ? "red" : "green" }}>{txStatus}</p>}
       {account && (
         <div>
-          <h2>Reputation Token Balance: {repBalance}</h2>
+          <p>Logged in as: <strong>{role}</strong></p>
+<h2>Reputation Token Balance: {repBalance}</h2>
           <hr />
 
           <h3>Active Jobs</h3>
@@ -515,24 +564,64 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {jobs.map(job => (
-                  <tr key={job.id}>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.id}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.client.slice(0, 6)}...{job.client.slice(-4)}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.freelancer.slice(0, 6)}...{job.freelancer.slice(-4)}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{job.amount}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>
-                      {job.deliveryUrl ? (
-                        <a href={`https://gateway.pinata.cloud/ipfs/${job.deliveryUrl}`} target="_blank" rel="noopener noreferrer">
-                          View Delivery
-                        </a>
-                      ) : (
-                        "N/A"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+
+{jobs
+  .filter(job => {
+    if (role === "Client") return job.client.toLowerCase() === selectedAccount.toLowerCase();
+    if (role === "Freelancer") return job.freelancer.toLowerCase() === selectedAccount.toLowerCase();
+    return true;
+  })
+  .map(job => (
+    <tr key={job.id}>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.id}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.client.slice(0, 6)}...{job.client.slice(-4)}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.freelancer.slice(0, 6)}...{job.freelancer.slice(-4)}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.amount}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>
+        <span style={{
+          padding: "4px 8px",
+          borderRadius: "12px",
+          backgroundColor:
+            job.status === "Created" ? "#007bff" :
+            job.status === "Funded" ? "#fd7e14" :
+            job.status === "Delivered" ? "#ffc107" :
+            job.status === "Confirmed" ? "#28a745" :
+            job.status === "Disputed" ? "#dc3545" :
+            job.status === "Resolved" ? "#6c757d" : "#999",
+          color: "white",
+          fontSize: "0.9em"
+        }}>
+          {job.status}
+        </span>
+      </td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>
+        {job.deliveryUrl ? (
+          <a href={`https://gateway.pinata.cloud/ipfs/${job.deliveryUrl}`} target="_blank" rel="noopener noreferrer">
+            View Delivery
+          </a>
+        ) : (
+          "N/A"
+        )}
+        {role === "Client" && job.status === "Created" && (
+          <button onClick={() => { setJobId(job.id); fundJob(); }}>Fund</button>
+        )}
+        {role === "Freelancer" && job.status === "Funded" && (
+          <>
+            <input type="file" onChange={onFileChange} style={{ display: "block", margin: "8px 0" }} />
+            <button onClick={() => { setJobId(job.id); submitDelivery(); }}>Submit Delivery</button>
+          </>
+        )}
+        {role === "Client" && job.status === "Delivered" && (
+          <button onClick={() => { setJobId(job.id); confirmDelivery(); }}>Confirm</button>
+        )}
+        {(role === "Client" || role === "Freelancer") && job.status === "Delivered" && (
+          <button onClick={() => { setJobId(job.id); disputeJob(); }}>Dispute</button>
+        )}
+      </td>
+    </tr>
+  ))}
+</tbody>
+
             </table>
           ) : (
             <p>No active jobs found.</p>
@@ -651,24 +740,148 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {disputes.map(dispute => (
-                  <tr key={dispute.id}>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{dispute.id}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{dispute.client.slice(0, 6)}...{dispute.client.slice(-4)}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{dispute.freelancer.slice(0, 6)}...{dispute.freelancer.slice(-4)}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{dispute.reason}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{dispute.votesClient}</td>
-                    <td style={{ padding: 8, border: "1px solid #ddd" }}>{dispute.votesFreelancer}</td>
-                  </tr>
-                ))}
-              </tbody>
+{jobs
+  .filter(job => {
+    if (role === "Client") return job.client.toLowerCase() === selectedAccount.toLowerCase();
+    if (role === "Freelancer") return job.freelancer.toLowerCase() === selectedAccount.toLowerCase();
+    return true;
+  })
+  .map(job => (
+    <tr key={job.id}>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.id}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.client.slice(0, 6)}...{job.client.slice(-4)}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.freelancer.slice(0, 6)}...{job.freelancer.slice(-4)}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.amount}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>
+        <span style={{
+          padding: "4px 8px",
+          borderRadius: "12px",
+          backgroundColor:
+            job.status === "Created" ? "#007bff" :
+            job.status === "Funded" ? "#fd7e14" :
+            job.status === "Delivered" ? "#ffc107" :
+            job.status === "Confirmed" ? "#28a745" :
+            job.status === "Disputed" ? "#dc3545" :
+            job.status === "Resolved" ? "#6c757d" : "#999",
+          color: "white",
+          fontSize: "0.9em"
+        }}>
+          {job.status}
+        </span>
+      </td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>
+        {job.deliveryUrl ? (
+          <a href={`https://gateway.pinata.cloud/ipfs/${job.deliveryUrl}`} target="_blank" rel="noopener noreferrer">
+            View Delivery
+          </a>
+        ) : (
+          "N/A"
+        )}
+        {role === "Client" && job.status === "Created" && (
+          <button onClick={() => { setJobId(job.id); fundJob(); }}>Fund</button>
+        )}
+        {role === "Freelancer" && job.status === "Funded" && (
+          <>
+            <input type="file" onChange={onFileChange} style={{ display: "block", margin: "8px 0" }} />
+            <button onClick={() => { setJobId(job.id); submitDelivery(); }}>Submit Delivery</button>
+          </>
+        )}
+        {role === "Client" && job.status === "Delivered" && (
+          <button onClick={() => { setJobId(job.id); confirmDelivery(); }}>Confirm</button>
+        )}
+        {(role === "Client" || role === "Freelancer") && job.status === "Delivered" && (
+          <button onClick={() => { setJobId(job.id); disputeJob(); }}>Dispute</button>
+        )}
+      </td>
+    </tr>
+  ))}
+</tbody>
             </table>
           ) : (
             <p>No open disputes found.</p>
           )}
         </div>
       )}
-    </div>
+    
+{selectedAccount === "0xArbitratorAddress" && (
+  <>
+    <hr />
+    <h3>Arbitrator: Resolve Disputes</h3>
+    {disputedJobs.length > 0 ? (
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16 }}>
+        <thead>
+          <tr style={{ background: "#f0f0f0" }}>
+            <th style={{ padding: 8, border: "1px solid #ddd" }}>Job ID</th>
+            <th style={{ padding: 8, border: "1px solid #ddd" }}>Client</th>
+            <th style={{ padding: 8, border: "1px solid #ddd" }}>Freelancer</th>
+            <th style={{ padding: 8, border: "1px solid #ddd" }}>Amount</th>
+            <th style={{ padding: 8, border: "1px solid #ddd" }}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+{jobs
+  .filter(job => {
+    if (role === "Client") return job.client.toLowerCase() === selectedAccount.toLowerCase();
+    if (role === "Freelancer") return job.freelancer.toLowerCase() === selectedAccount.toLowerCase();
+    return true;
+  })
+  .map(job => (
+    <tr key={job.id}>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.id}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.client.slice(0, 6)}...{job.client.slice(-4)}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.freelancer.slice(0, 6)}...{job.freelancer.slice(-4)}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>{job.amount}</td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>
+        <span style={{
+          padding: "4px 8px",
+          borderRadius: "12px",
+          backgroundColor:
+            job.status === "Created" ? "#007bff" :
+            job.status === "Funded" ? "#fd7e14" :
+            job.status === "Delivered" ? "#ffc107" :
+            job.status === "Confirmed" ? "#28a745" :
+            job.status === "Disputed" ? "#dc3545" :
+            job.status === "Resolved" ? "#6c757d" : "#999",
+          color: "white",
+          fontSize: "0.9em"
+        }}>
+          {job.status}
+        </span>
+      </td>
+      <td style={{ padding: 8, border: "1px solid #FFD700" }}>
+        {job.deliveryUrl ? (
+          <a href={`https://gateway.pinata.cloud/ipfs/${job.deliveryUrl}`} target="_blank" rel="noopener noreferrer">
+            View Delivery
+          </a>
+        ) : (
+          "N/A"
+        )}
+        {role === "Client" && job.status === "Created" && (
+          <button onClick={() => { setJobId(job.id); fundJob(); }}>Fund</button>
+        )}
+        {role === "Freelancer" && job.status === "Funded" && (
+          <>
+            <input type="file" onChange={onFileChange} style={{ display: "block", margin: "8px 0" }} />
+            <button onClick={() => { setJobId(job.id); submitDelivery(); }}>Submit Delivery</button>
+          </>
+        )}
+        {role === "Client" && job.status === "Delivered" && (
+          <button onClick={() => { setJobId(job.id); confirmDelivery(); }}>Confirm</button>
+        )}
+        {(role === "Client" || role === "Freelancer") && job.status === "Delivered" && (
+          <button onClick={() => { setJobId(job.id); disputeJob(); }}>Dispute</button>
+        )}
+      </td>
+    </tr>
+  ))}
+</tbody>
+      </table>
+    ) : (
+      <p>No disputed jobs to resolve.</p>
+    )}
+  </>
+)}
+</div>
   );
 }
 

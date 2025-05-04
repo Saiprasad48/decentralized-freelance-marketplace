@@ -1,4 +1,23 @@
+
+body {
+  background-color: #e8cbf2;
+  color: #f0f0f0;
+  font-family: 'Segoe UI', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+h1, h2, h3 {
+  color: #FFD700;
+}
+
 .App {
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  background-color: #bf7dda;
+  min-height: 100vh;
+  border-left: 5px solid #FFD700;
   text-align: center;
 }
 
@@ -14,14 +33,14 @@
 }
 
 .App-header {
-  background-color: #282c34;
+  background-color: #7393d2;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: calc(10px + 2vmin);
-  color: rgb(30, 29, 29);
+  color: rgb(159, 121, 243);
 }
 
 .App-link {
@@ -35,4 +54,56 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+button {
+  background-color: #FFD700;
+  color: #000;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin: 4px 4px 4px 0;
+}
+
+button:hover {
+  background-color: #e6c200;
+}
+
+input, select {
+  padding: 8px;
+  margin: 4px 0;
+  width: 100%;
+  border-radius: 4px;
+  border: 1px solid #FFD700;
+  background-color: #dfa1f8;
+  color: #0f0909;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+th, td {
+  padding: 8px;
+  border: 1px solid #FFD700;
+  text-align: left;
+}
+
+th {
+  background-color: #1a1a1a;
+  color: #FFD700;
+}
+
+a {
+  color: #FFD700;
+}
+
+span.badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  color: white;
+  font-size: 0.9em;
 }
